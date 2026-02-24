@@ -89,7 +89,7 @@ export function PaymentModal({
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-foreground">Complete Payment</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={loading}
             className="text-gray-500 hover:text-gray-700"
           >
