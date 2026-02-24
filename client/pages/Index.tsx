@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Header } from "@/components/Header";
 import { PricingCard } from "@/components/PricingCard";
 import { PaymentModal } from "@/components/PaymentModal";
+import { Footer } from "@/components/Footer";
 
 const pricingPlans = [
   {
@@ -119,8 +120,8 @@ export default function Index() {
         />
       )}
 
-      {/* Footer spacer */}
-      <div className="bg-white h-20"></div>
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }
