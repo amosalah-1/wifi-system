@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Header } from "@/components/Header";
 import { PricingCard } from "@/components/PricingCard";
+import { PaymentModal } from "@/components/PaymentModal";
 
 const pricingPlans = [
   {
@@ -55,6 +57,22 @@ const pricingPlans = [
 ];
 
 export default function Index() {
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<{
+    name: string;
+    price: number;
+  } | null>(null);
+
+  const handleConnect = (planName: string, price: number) => {
+    setSelectedPlan({ name: planName, price });
+    setIsPaymentOpen(true);
+  };
+
+  const handleClosePayment = () => {
+    setIsPaymentOpen(false);
+    setSelectedPlan(null);
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <Header />
@@ -84,11 +102,22 @@ export default function Index() {
                 planName={plan.planName}
                 price={plan.price}
                 description={plan.description}
+                onConnect={handleConnect}
               />
             ))}
           </div>
         </div>
       </section>
+
+      {/* Payment Modal */}
+      {selectedPlan && (
+        <PaymentModal
+          isOpen={isPaymentOpen}
+          planName={selectedPlan.name}
+          price={selectedPlan.price}
+          onClose={handleClosePayment}
+        />
+      )}
 
       {/* Footer spacer */}
       <div className="bg-white h-20"></div>

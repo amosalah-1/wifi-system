@@ -10,3 +10,22 @@
 export interface DemoResponse {
   message: string;
 }
+
+/**
+ * Payment initiation request
+ */
+export interface PaymentInitiateRequest {
+  phoneNumber: string;
+  amount: number;
+  planName: string;
+}
+
+/**
+ * Payment initiation response
+ */
+export interface PaymentInitiateResponse {
+  success: boolean;
+  message: string;
+  transactionId?: string;
+  error?: string;
+}
