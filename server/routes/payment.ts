@@ -3,22 +3,28 @@ import {
   PaymentInitiateRequest,
   PaymentInitiateResponse,
 } from "@shared/api";
+import { supabase } from "../lib/supabase";
+import {
+  generateWiFiCredentials,
+  calculateValidityEndDate,
+  formatCredentialsForDisplay,
+  generateSMSText,
+} from "../lib/wifi-generator";
 
 // Mpesa API configuration
-// These should be environment variables in production
 const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY || "";
 const MPESA_CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET || "";
 const MPESA_SHORTCODE = process.env.MPESA_SHORTCODE || "174379";
 const MPESA_PASSKEY = process.env.MPESA_PASSKEY || "";
 const MPESA_CALLBACK_URL = process.env.MPESA_CALLBACK_URL || "";
-const ENVIRONMENT = process.env.MPESA_ENVIRONMENT || "sandbox"; // sandbox or production
+const ENVIRONMENT = process.env.MPESA_ENVIRONMENT || "sandbox";
+const WIFI_SSID = process.env.WIFI_SSID || "OLOIKA_WIFI";
 
 /**
  * Get Mpesa access token
  */
 async function getMpesaAccessToken(): Promise<string> {
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET) {
-    // Return a mock token for demo purposes if credentials not set
     return "mock-token";
   }
 
@@ -57,7 +63,6 @@ async function initiateMpesaSTKPush(
 ): Promise<{ transactionId: string; message: string }> {
   const accessToken = await getMpesaAccessToken();
 
-  // If credentials not set, return mock response
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET) {
     return {
       transactionId: `TRX-${Date.now()}`,
@@ -66,10 +71,9 @@ async function initiateMpesaSTKPush(
     };
   }
 
-  // Format phone number: remove leading 0 and add country code if needed
   let formattedPhone = phoneNumber.replace(/^0/, "254");
   if (!formattedPhone.startsWith("254")) {
-    formattedPhone = "254" + formattedPhone;
+    formattedPhone = "254" + phoneNumber;
   }
 
   try {
@@ -129,6 +133,142 @@ async function initiateMpesaSTKPush(
 }
 
 /**
+ * Get plan details by ID
+ */
+async function getPlanById(planId: number) {
+  const { data, error } = await supabase
+    .from("plans")
+    .select("*")
+    .eq("id", planId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get or create customer
+ */
+async function getOrCreateCustomer(phoneNumber: string, email?: string) {
+  // Try to get existing customer
+  const { data: existing } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("phone_number", phoneNumber)
+    .single();
+
+  if (existing) {
+    return existing;
+  }
+
+  // Create new customer
+  const { data: newCustomer, error } = await supabase
+    .from("customers")
+    .insert([
+      {
+        phone_number: phoneNumber,
+        email: email || null,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return newCustomer;
+}
+
+/**
+ * Create payment record
+ */
+async function createPayment(
+  customerId: number,
+  planId: number,
+  amount: number,
+  mpesaTransactionId?: string
+) {
+  const { data, error } = await supabase
+    .from("payments")
+    .insert([
+      {
+        customer_id: customerId,
+        plan_id: planId,
+        amount,
+        mpesa_transaction_id: mpesaTransactionId || null,
+        status: "success",
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Create WiFi credentials
+ */
+async function createWiFiCredentials(
+  paymentId: number,
+  customerId: number,
+  durationHours?: number
+) {
+  const { username, password } = generateWiFiCredentials();
+  const validityEnd = calculateValidityEndDate(durationHours);
+
+  const { data, error } = await supabase
+    .from("wifi_credentials")
+    .insert([
+      {
+        payment_id: paymentId,
+        customer_id: customerId,
+        username,
+        password,
+        ssid: WIFI_SSID,
+        validity_end: validityEnd.toISOString(),
+        status: "active",
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Create subscription
+ */
+async function createSubscription(
+  customerId: number,
+  planId: number,
+  paymentId: number,
+  wifiCredentialId: number,
+  durationHours?: number
+) {
+  const startDate = new Date();
+  const endDate = calculateValidityEndDate(durationHours);
+
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .insert([
+      {
+        customer_id: customerId,
+        plan_id: planId,
+        payment_id: paymentId,
+        wifi_credential_id: wifiCredentialId,
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        status: "active",
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Payment initiation handler
  */
 export const handlePaymentInitiate: RequestHandler = async (req, res) => {
@@ -162,24 +302,83 @@ export const handlePaymentInitiate: RequestHandler = async (req, res) => {
       } as PaymentInitiateResponse);
     }
 
+    // Get or create customer
+    const customer = await getOrCreateCustomer(normalizedPhone);
+
+    // Get plan by name
+    const { data: plans } = await supabase
+      .from("plans")
+      .select("*")
+      .ilike("name", `%${planName}%`)
+      .limit(1);
+
+    if (!plans || plans.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Plan not found",
+      } as PaymentInitiateResponse);
+    }
+
+    const plan = plans[0];
+
     // Generate order ID
-    const orderId = `WIFI-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const orderId = `WIFI-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
 
     // Initiate Mpesa payment
-    const result = await initiateMpesaSTKPush(
+    const mpesaResult = await initiateMpesaSTKPush(
       normalizedPhone,
       amount,
       orderId
     );
 
-    // Log transaction (in production, save to database)
-    console.log(`Payment initiated - Order: ${orderId}, Amount: ${amount} KES`);
+    // Create payment record
+    const payment = await createPayment(
+      customer.id,
+      plan.id,
+      amount,
+      mpesaResult.transactionId
+    );
+
+    // Create WiFi credentials
+    const wifiCred = await createWiFiCredentials(
+      payment.id,
+      customer.id,
+      plan.duration_hours
+    );
+
+    // Create subscription
+    await createSubscription(
+      customer.id,
+      plan.id,
+      payment.id,
+      wifiCred.id,
+      plan.duration_hours
+    );
+
+    // Format credentials for display
+    const formattedCreds = formatCredentialsForDisplay(
+      wifiCred.username,
+      wifiCred.password,
+      wifiCred.ssid,
+      new Date(wifiCred.validity_end)
+    );
+
+    // Log transaction
+    console.log(`Payment processed - Order: ${orderId}, Customer: ${customer.id}`);
 
     return res.json({
       success: true,
-      message: result.message,
-      transactionId: result.transactionId,
-    } as PaymentInitiateResponse);
+      message: mpesaResult.message,
+      transactionId: mpesaResult.transactionId,
+      credentials: {
+        username: formattedCreds.username,
+        password: formattedCreds.password,
+        ssid: formattedCreds.ssid,
+        expiresIn: formattedCreds.expiresIn,
+      },
+    } as any);
   } catch (error) {
     console.error("Payment initiation error:", error);
     return res.status(500).json({

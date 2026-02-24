@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, Copy, Check } from "lucide-react";
+
+interface WiFiCredentials {
+  username: string;
+  password: string;
+  ssid: string;
+  expiresIn: string;
+}
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -18,6 +25,8 @@ export function PaymentModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [credentials, setCredentials] = useState<WiFiCredentials | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,12 +52,11 @@ export function PaymentModal({
         throw new Error(data.error || "Payment initiation failed");
       }
 
+      // Set credentials if available
+      if (data.credentials) {
+        setCredentials(data.credentials);
+      }
       setSuccess(true);
-      setTimeout(() => {
-        onClose();
-        setSuccess(false);
-        setPhoneNumber("");
-      }, 2000);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An error occurred"
@@ -56,6 +64,20 @@ export function PaymentModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCopy = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleClose = () => {
+    onClose();
+    setSuccess(false);
+    setPhoneNumber("");
+    setCredentials(null);
+    setError("");
   };
 
   if (!isOpen) return null;
@@ -75,7 +97,124 @@ export function PaymentModal({
           </button>
         </div>
 
-        {success ? (
+        {success && credentials ? (
+          <div className="text-center py-6">
+            <div className="bg-secondary text-secondary-foreground rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </div>
+            <p className="text-lg font-semibold text-foreground mb-4">
+              Payment Successful!
+            </p>
+            <p className="text-sm text-gray-600 mb-6">
+              Your WiFi credentials are ready to use
+            </p>
+
+            {/* WiFi Credentials Display */}
+            <div className="bg-muted p-4 rounded-lg space-y-4 text-left">
+              {/* SSID */}
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase">
+                  Network Name (SSID)
+                </label>
+                <div className="flex items-center justify-between bg-white p-3 rounded mt-1">
+                  <span className="font-mono text-foreground">
+                    {credentials.ssid}
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(credentials.ssid, "ssid")
+                    }
+                    className="text-primary hover:text-primary/80"
+                  >
+                    {copiedField === "ssid" ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Username */}
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase">
+                  Username
+                </label>
+                <div className="flex items-center justify-between bg-white p-3 rounded mt-1">
+                  <span className="font-mono text-foreground">
+                    {credentials.username}
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(credentials.username, "username")
+                    }
+                    className="text-primary hover:text-primary/80"
+                  >
+                    {copiedField === "username" ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase">
+                  Password
+                </label>
+                <div className="flex items-center justify-between bg-white p-3 rounded mt-1">
+                  <span className="font-mono text-foreground">
+                    {credentials.password}
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(credentials.password, "password")
+                    }
+                    className="text-primary hover:text-primary/80"
+                  >
+                    {copiedField === "password" ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Expiry */}
+              <div className="bg-yellow-50 border border-yellow-200 p-3 rounded">
+                <p className="text-xs font-semibold text-yellow-800">
+                  ⏱️ Valid for: {credentials.expiresIn}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-6">
+              A confirmation will be sent to your phone
+            </p>
+
+            <button
+              onClick={handleClose}
+              className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground font-semibold py-2 rounded-lg mt-6 transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        ) : success ? (
           <div className="text-center py-8">
             <div className="bg-secondary text-secondary-foreground rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4">
               <svg
