@@ -35,7 +35,7 @@ export function Footer() {
           <div>
             <h3 className="text-lg font-bold mb-4">About Us</h3>
             <p className="text-sm text-primary-foreground/80">
-              Trust WiFi provides ultra-fast, cheap, and reliable internet
+              Oloika WiFi provides ultra-fast, cheap, and reliable internet
               connectivity for everyone.
             </p>
           </div>
@@ -99,7 +99,7 @@ export function Footer() {
         <div className="border-t border-primary-foreground/20 pt-8">
           {/* Footer Bottom */}
           <div className="flex flex-col md:flex-row justify-between items-center text-sm">
-            <p>&copy; 2024 Trust WiFi. All rights reserved.</p>
+            <p>&copy; 2026 Oloika WiFi. All rights reserved.</p>
             <div className="flex gap-4 mt-4 md:mt-0">
               <a href="#" className="hover:text-gray-200 transition-colors">
                 Privacy Policy

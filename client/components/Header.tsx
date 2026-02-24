@@ -9,7 +9,7 @@ export function Header() {
           <Wifi className="w-8 h-8" />
           <div>
             <div className="text-sm font-light">Sign in to</div>
-            <div className="text-2xl font-bold">TRUST WIFI</div>
+            <div className="text-2xl font-bold">OLOIKA WIFI</div>
           </div>
         </div>
 
