@@ -29,3 +29,24 @@ export interface PaymentInitiateResponse {
   transactionId?: string;
   error?: string;
 }
+
+/**
+ * Plan details
+ */
+export interface Plan {
+  id: number;
+  name: string;
+  price: number;
+  data_limit?: string;
+  duration_hours?: number;
+  description: string;
+}
+
+/**
+ * Plans list response
+ */
+export interface PlansResponse {
+  success: boolean;
+  plans?: Plan[];
+  error?: string;
+}

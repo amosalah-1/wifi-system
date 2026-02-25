@@ -2,7 +2,8 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
-import { handlePaymentInitiate } from "./routes/payment";
+import { handlePaymentInitiate, handlePaymentCallback } from "./routes/payment";
+import { handleGetPlans } from "./routes/plans";
 
 export function createServer() {
   const app = express();
@@ -20,7 +21,12 @@ export function createServer() {
 
   app.get("/api/demo", handleDemo);
 
+  app.get("/api/plans", handleGetPlans);
+
   app.post("/api/payment/initiate", handlePaymentInitiate);
+
+  // M-Pesa callback endpoint
+  app.post("/api/payment/callback", handlePaymentCallback);
 
   return app;
 }

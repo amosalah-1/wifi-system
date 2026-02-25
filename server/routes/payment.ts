@@ -1,4 +1,5 @@
 import { RequestHandler } from "express";
+import { z } from "zod";
 import {
   PaymentInitiateRequest,
   PaymentInitiateResponse,
@@ -10,6 +11,19 @@ import {
   formatCredentialsForDisplay,
   generateSMSText,
 } from "../lib/wifi-generator";
+
+// Validation schema
+const PaymentInitiateSchema = z.object({
+  phoneNumber: z
+    .string()
+    .min(1, "Phone number is required")
+    .regex(/^(254|\+254|0)?[71][0-9]{8}$/, "Invalid Kenyan phone number format"),
+  amount: z
+    .number()
+    .min(1, "Amount must be at least 1 KES")
+    .max(150000, "Amount cannot exceed 150000 KES"),
+  planName: z.string().min(1, "Plan name is required"),
+});
 
 // Mpesa API configuration
 const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY || "";
@@ -194,9 +208,27 @@ async function createPayment(
         plan_id: planId,
         amount,
         mpesa_transaction_id: mpesaTransactionId || null,
-        status: "success",
+        status: "pending",
       },
     ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update payment status
+ */
+async function updatePaymentStatus(
+  paymentId: number,
+  status: "success" | "failed"
+) {
+  const { data, error } = await supabase
+    .from("payments")
+    .update({ status })
+    .eq("id", paymentId)
     .select()
     .single();
 
@@ -273,39 +305,29 @@ async function createSubscription(
  */
 export const handlePaymentInitiate: RequestHandler = async (req, res) => {
   try {
-    const { phoneNumber, amount, planName } =
-      req.body as PaymentInitiateRequest;
+    // Validate request payload
+    const validationResult = PaymentInitiateSchema.safeParse(req.body);
 
-    // Validation
-    if (!phoneNumber || !amount || !planName) {
+    if (!validationResult.success) {
+      const errors = validationResult.error.errors
+        .map((err) => `${err.path.join(".")}: ${err.message}`)
+        .join("; ");
+
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: phoneNumber, amount, planName",
+        error: `Validation error: ${errors}`,
       } as PaymentInitiateResponse);
     }
 
-    // Validate phone number format
-    const phoneRegex = /^(254|\+254|0)?[71][0-9]{8}$/;
-    const normalizedPhone = phoneNumber.replace("+", "");
-    if (!phoneRegex.test(normalizedPhone)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid Kenyan phone number format",
-      } as PaymentInitiateResponse);
-    }
+    const { phoneNumber, amount, planName } = validationResult.data;
 
-    // Validate amount
-    if (amount < 1 || amount > 150000) {
-      return res.status(400).json({
-        success: false,
-        error: "Amount must be between 1 and 150000 KES",
-      } as PaymentInitiateResponse);
-    }
+    // Normalize phone number
+    const normalizedPhone = phoneNumber.replace("+", "").replace(/^0/, "254");
 
     // Get or create customer
     const customer = await getOrCreateCustomer(normalizedPhone);
 
-    // Get plan by name
+    // Get plan by name (case-insensitive)
     const { data: plans } = await supabase
       .from("plans")
       .select("*")
@@ -333,7 +355,7 @@ export const handlePaymentInitiate: RequestHandler = async (req, res) => {
       orderId
     );
 
-    // Create payment record
+    // Create payment record (with pending status - will be confirmed by callback)
     const payment = await createPayment(
       customer.id,
       plan.id,
@@ -341,44 +363,14 @@ export const handlePaymentInitiate: RequestHandler = async (req, res) => {
       mpesaResult.transactionId
     );
 
-    // Create WiFi credentials
-    const wifiCred = await createWiFiCredentials(
-      payment.id,
-      customer.id,
-      plan.duration_hours
-    );
-
-    // Create subscription
-    await createSubscription(
-      customer.id,
-      plan.id,
-      payment.id,
-      wifiCred.id,
-      plan.duration_hours
-    );
-
-    // Format credentials for display
-    const formattedCreds = formatCredentialsForDisplay(
-      wifiCred.username,
-      wifiCred.password,
-      wifiCred.ssid,
-      new Date(wifiCred.validity_end)
-    );
-
-    // Log transaction
-    console.log(`Payment processed - Order: ${orderId}, Customer: ${customer.id}`);
+    // Log payment initiated
+    console.log(`Payment initiated - Order: ${orderId}, TransactionID: ${mpesaResult.transactionId}, Customer: ${customer.id}`);
 
     return res.json({
       success: true,
       message: mpesaResult.message,
       transactionId: mpesaResult.transactionId,
-      credentials: {
-        username: formattedCreds.username,
-        password: formattedCreds.password,
-        ssid: formattedCreds.ssid,
-        expiresIn: formattedCreds.expiresIn,
-      },
-    } as any);
+    } as PaymentInitiateResponse);
   } catch (error) {
     console.error("Payment initiation error:", error);
     return res.status(500).json({
@@ -388,5 +380,98 @@ export const handlePaymentInitiate: RequestHandler = async (req, res) => {
           ? error.message
           : "Failed to initiate payment",
     } as PaymentInitiateResponse);
+  }
+};
+
+/**
+ * M-Pesa callback handler
+ * Called by Safaricom when payment is completed or fails
+ */
+export const handlePaymentCallback: RequestHandler = async (req, res) => {
+  try {
+    const callbackData = req.body;
+
+    // M-Pesa callback structure for STK Push
+    const result = callbackData?.Body?.stkCallback;
+
+    if (!result) {
+      console.error("Invalid callback format:", callbackData);
+      return res.status(400).json({ ResultCode: 1 });
+    }
+
+    const checkoutRequestId = result.CheckoutRequestID;
+    const resultCode = result.ResultCode;
+    const resultDesc = result.ResultDesc;
+    const callbackMetadata = result.CallbackMetadata?.Item;
+
+    console.log(`Callback received - CheckoutID: ${checkoutRequestId}, Code: ${resultCode}`);
+
+    // Find payment by transaction ID
+    const { data: payments, error: findError } = await supabase
+      .from("payments")
+      .select("*")
+      .eq("mpesa_transaction_id", checkoutRequestId)
+      .limit(1);
+
+    if (findError || !payments || payments.length === 0) {
+      console.error("Payment not found for transaction:", checkoutRequestId);
+      return res.status(200).json({ ResultCode: 0 }); // Acknowledge to M-Pesa
+    }
+
+    const payment = payments[0];
+
+    // Check if payment was successful (ResultCode 0 = success)
+    if (resultCode === 0) {
+      // Extract metadata
+      let mpesaReceiptNumber = "";
+      let phoneNumber = "";
+      let amount = payment.amount;
+
+      if (callbackMetadata && Array.isArray(callbackMetadata)) {
+        callbackMetadata.forEach((item: any) => {
+          if (item.Name === "MpesaReceiptNumber") {
+            mpesaReceiptNumber = item.Value;
+          } else if (item.Name === "PhoneNumber") {
+            phoneNumber = item.Value;
+          } else if (item.Name === "Amount") {
+            amount = item.Value;
+          }
+        });
+      }
+
+      // Update payment to success
+      await updatePaymentStatus(payment.id, "success");
+
+      // Get plan details
+      const plan = await getPlanById(payment.plan_id);
+
+      // Create WiFi credentials now that payment is confirmed
+      const wifiCred = await createWiFiCredentials(
+        payment.id,
+        payment.customer_id,
+        plan.duration_hours
+      );
+
+      // Create subscription
+      await createSubscription(
+        payment.customer_id,
+        payment.plan_id,
+        payment.id,
+        wifiCred.id,
+        plan.duration_hours
+      );
+
+      console.log(`Payment confirmed - Receipt: ${mpesaReceiptNumber}, PaymentID: ${payment.id}`);
+    } else {
+      // Payment failed
+      await updatePaymentStatus(payment.id, "failed");
+      console.log(`Payment failed - CheckoutID: ${checkoutRequestId}, Reason: ${resultDesc}`);
+    }
+
+    // Always return success to M-Pesa (we've acknowledged)
+    return res.status(200).json({ ResultCode: 0 });
+  } catch (error) {
+    console.error("Payment callback error:", error);
+    return res.status(200).json({ ResultCode: 0 }); // Still acknowledge to M-Pesa
   }
 };

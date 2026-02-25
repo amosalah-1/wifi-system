@@ -1,61 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { PricingCard } from "@/components/PricingCard";
 import { PaymentModal } from "@/components/PaymentModal";
 import { Footer } from "@/components/Footer";
-
-const pricingPlans = [
-  {
-    planName: "500MB 1HR,",
-    price: 5,
-    description: "1 Hrs Limited",
-  },
-  {
-    planName: "UNLIMITED 1HR,",
-    price: 10,
-    description: "1 Hrs Unlimited",
-  },
-  {
-    planName: "1GB DAILY,",
-    price: 20,
-    description: "1 Day Limited",
-  },
-  {
-    planName: "2GB DAILY,",
-    price: 30,
-    description: "1 Day Limited",
-  },
-  {
-    planName: "UNLIMITED 24HRS,",
-    price: 35,
-    description: "1 Days Unlimited",
-  },
-  {
-    planName: "2GB WEEKLY,",
-    price: 50,
-    description: "7 Days Limited",
-  },
-  {
-    planName: "5GB WEEKLY,",
-    price: 100,
-    description: "7 Days Limited",
-  },
-  {
-    planName: "UNLIMITED 1WEEK,",
-    price: 200,
-    description: "7 Days Unlimited",
-  },
-  {
-    planName: "30GB MONTHLY,",
-    price: 450,
-    description: "1 Months Limited",
-  },
-  {
-    planName: "UNLIMITED 1MONTH,",
-    price: 700,
-    description: "1 Months Unlimited",
-  },
-];
+import { Plan } from "@shared/api";
 
 export default function Index() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -63,6 +11,32 @@ export default function Index() {
     name: string;
     price: number;
   } | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch("/api/plans");
+        const data = await response.json();
+
+        if (data.success && data.plans) {
+          setPlans(data.plans);
+        } else {
+          setError(data.error || "Failed to load plans");
+        }
+      } catch (err) {
+        console.error("Error fetching plans:", err);
+        setError("Failed to load pricing plans");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPlans();
+  }, []);
 
   const handleConnect = (planName: string, price: number) => {
     setSelectedPlan({ name: planName, price });
@@ -95,18 +69,41 @@ export default function Index() {
             Choose a plan that fits your needs.
           </p>
 
+          {/* Error State */}
+          {error && (
+            <div className="text-center mb-8 p-4 bg-red-50 text-red-600 rounded-lg">
+              {error}
+            </div>
+          )}
+
+          {/* Loading State */}
+          {isLoading && (
+            <div className="text-center py-12">
+              <p className="text-gray-600">Loading plans...</p>
+            </div>
+          )}
+
           {/* Pricing Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {pricingPlans.map((plan, index) => (
-              <PricingCard
-                key={index}
-                planName={plan.planName}
-                price={plan.price}
-                description={plan.description}
-                onConnect={handleConnect}
-              />
-            ))}
-          </div>
+          {!isLoading && !error && plans.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {plans.map((plan) => (
+                <PricingCard
+                  key={plan.id}
+                  planName={plan.name}
+                  price={plan.price}
+                  description={plan.description}
+                  onConnect={handleConnect}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* No Plans State */}
+          {!isLoading && !error && plans.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-gray-600">No plans available at the moment.</p>
+            </div>
+          )}
         </div>
       </section>
 
