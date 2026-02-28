@@ -33,7 +33,10 @@ function expressPlugin(): Plugin {
       const app = createServer();
 
       // Add Express app as middleware to Vite dev server
-      server.middlewares.use(app);
+      // Use return to add middleware after default Vite middleware
+      return () => {
+        server.middlewares.use(app);
+      };
     },
   };
 }

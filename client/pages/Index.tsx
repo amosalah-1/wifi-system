@@ -19,7 +19,17 @@ export default function Index() {
     const fetchPlans = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch("/api/plans");
+        const response = await fetch("/api/plans", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.success && data.plans) {
@@ -29,7 +39,7 @@ export default function Index() {
         }
       } catch (err) {
         console.error("Error fetching plans:", err);
-        setError("Failed to load pricing plans");
+        setError("Failed to load pricing plans. Please refresh the page.");
       } finally {
         setIsLoading(false);
       }
