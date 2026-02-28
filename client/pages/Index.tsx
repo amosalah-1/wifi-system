@@ -31,11 +31,14 @@ export default function Index() {
         }
 
         const data = await response.json();
+        console.log("Plans API response:", data);
 
-        if (data.success && data.plans) {
+        if (data.success && data.plans && Array.isArray(data.plans)) {
+          console.log("Setting plans:", data.plans);
           setPlans(data.plans);
         } else {
-          setError(data.error || "Failed to load plans");
+          console.error("Invalid plans data:", data);
+          setError(data.error || "Failed to load plans - invalid data format");
         }
       } catch (err) {
         console.error("Error fetching plans:", err);
